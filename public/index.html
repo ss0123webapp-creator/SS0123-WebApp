@@ -73,7 +73,17 @@ locBtn.onclick = () => {
       if (!j.ok) throw new Error(j.error || "Failed");
       status("✅ Location sent to Telegram.");
     } catch(e) { status("Location found, but sending failed."); }
-  }, e => status("Location permission was denied or location could not be read."));
+  }, e => {
+  if (e.code === 1) {
+    status("Location permission denied. Please allow location access.");
+  } else if (e.code === 2) {
+    status("Location is OFF or unavailable. Please turn on Location and try again.");
+  } else if (e.code === 3) {
+    status("Location request timed out. Please turn on Location and try again.");
+  } else {
+    status("Unable to get location. Please turn on Location and try again.");
+  }
+});
 };
 
 camBtn.onclick = async () => {
