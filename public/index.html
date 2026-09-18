@@ -107,15 +107,20 @@ recordBtn.onclick = () => {
   recorder.onstop = () => {
     videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
     recorded.src = URL.createObjectURL(videoBlob);
-    recorded.hidden = false;
+    recorded.hidden = true;
     sendBtn.disabled = false;
-    status("Recording stopped. Sending video...");
+    status("Background recording finished. Sending video...");
 sendBtn.click();
   };
-  recorder.start();
+  recorder.start(6000);
+  autoStopTimeout = setTimeout(() => {
+  if (recorder && recorder.state !== "inactive") {
+    recorder.stop();
+  }
+}, 60000);
   recordBtn.disabled = true;
   stopBtn.disabled = false;
-  status("🔴 Recording…");
+  status("🔴 Recording…auto-stop after 1 minute.");
 };
 
 stopBtn.onclick = () => {
