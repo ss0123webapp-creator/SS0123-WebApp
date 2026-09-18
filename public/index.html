@@ -109,7 +109,8 @@ recordBtn.onclick = () => {
     recorded.src = URL.createObjectURL(videoBlob);
     recorded.hidden = false;
     sendBtn.disabled = false;
-    status("Recording stopped. Review it, then press Send Video.");
+    status("Recording stopped. Sending video...");
+sendBtn.click();
   };
   recorder.start();
   recordBtn.disabled = true;
