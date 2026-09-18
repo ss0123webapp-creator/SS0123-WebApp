@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SS0123 Web App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+  <style>
+    body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff}
+    .box{max-width:520px;margin:auto;background:#121c2f;padding:22px;border-radius:20px}
+    button{width:100%;padding:14px;margin:7px 0;border:0;border-radius:12px;font-size:16px}
+    video{width:100%;border-radius:14px;background:#000;margin:10px 0}
+    .small{opacity:.75;font-size:13px;line-height:1.5}
+    #status{margin-top:12px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+<div class="box">
+  <h2>SS0123 Web App</h2>
+  <p>Before continuing, please know what will be shared.</p>
+  <p class="small">
+    Location is shared only after you press the location button and allow permission.
+    Camera/microphone are used only after you press Start Camera and allow permission.
+    A recorded video is sent only when you press Send Video.
+  </p>
+
+  <button id="locBtn">📍 Share Location</button>
+  <button id="camBtn">🎥 Start Camera</button>
+
+  <video id="preview" autoplay playsinline muted></video>
+  <button id="recordBtn" disabled>⏺️ Start Recording</button>
+  <button id="stopBtn" disabled>⏹️ Stop Recording</button>
+
+  <video id="recorded" controls hidden></video>
+  <button id="sendBtn" disabled>📤 Send Video</button>
+  <div id="status" class="small"></div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.ready();
+tg?.expand();
+
+const statusEl = document.getElementById("status");
+const preview = document.getElementById("preview");
+const recorded = document.getElementById("recorded");
+const locBtn = document.getElementById("locBtn");
+const camBtn = document.getElementById("camBtn");
+const recordBtn = document.getElementById("recordBtn");
+const stopBtn = document.getElementById("stopBtn");
+const sendBtn = document.getElementById("sendBtn");
+
+let stream = null;
+let recorder = null;
+let chunks = [];
+let videoBlob = null;
+
+function status(s){ statusEl.textContent = s; }
+
+locBtn.onclick = () => {
+  if (!navigator.geolocation) return status("Location is not supported by this browser.");
+  status("Requesting location permission…");
+  navigator.geolocation.getCurrentPosition(async p => {
+    const { latitude, longitude, accuracy } = p.coords;
+    status(`Location found:\n${latitude}, ${longitude}\nAccuracy: ${Math.round(accuracy)} m`);
+    try {
+      const r = await fetch("/api/location", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({latitude, longitude, accuracy})
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "Failed");
+      status("✅ Location sent to Telegram.");
+    } catch(e) { status("Location found, but sending failed."); }
+  }, e => status("Location permission was denied or location could not be read."));
+};
+
+camBtn.onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    preview.srcObject = stream;
+    recordBtn.disabled = false;
+    camBtn.disabled = true;
+    status("✅ Camera ready. Press Start Recording when you want to record.");
+  } catch(e) {
+    status("Camera/microphone permission was denied or unavailable.");
+  }
+};
+
+recordBtn.onclick = () => {
+  if (!stream) return;
+  chunks = [];
+  videoBlob = null;
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => {
+    videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
+    recorded.src = URL.createObjectURL(videoBlob);
+    recorded.hidden = false;
+    sendBtn.disabled = false;
+    status("Recording stopped. Review it, then press Send Video.");
+  };
+  recorder.start();
+  recordBtn.disabled = true;
+  stopBtn.disabled = false;
+  status("🔴 Recording…");
+};
+
+stopBtn.onclick = () => {
+  if (recorder && recorder.state !== "inactive") recorder.stop();
+  recordBtn.disabled = false;
+  stopBtn.disabled = true;
+};
+
+sendBtn.onclick = async () => {
+  if (!videoBlob) return;
+  sendBtn.disabled = true;
+  status("Uploading video…");
+  try {
+    const form = new FormData();
+    form.append("video", videoBlob, "recording.webm");
+    const r = await fetch("/api/video", {method:"POST", body:form});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "Failed");
+    status("✅ Video sent to Telegram.");
+  } catch(e) {
+    status("Video upload failed. Try again.");
+    sendBtn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
