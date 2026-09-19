@@ -18,7 +18,7 @@
       margin: 0;
       padding: 24px;
       background: #0b1220;
-      color: #ffffff;
+      color: #fff;
     }
 
     .box {
@@ -27,10 +27,6 @@
       background: #121c2f;
       padding: 22px;
       border-radius: 20px;
-    }
-
-    h2 {
-      margin-top: 0;
     }
 
     button {
@@ -43,22 +39,8 @@
       cursor: pointer;
     }
 
-    button:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-
-    video,
-    img {
-      display: block;
-      width: 100%;
-      border-radius: 14px;
-      margin: 12px 0;
-      background: #000000;
-    }
-
     .small {
-      opacity: 0.75;
+      opacity: .75;
       font-size: 13px;
       line-height: 1.5;
     }
@@ -81,39 +63,12 @@
     </p>
 
     <p class="small">
-      Location is shared only after you press Share Location
-      and allow permission.
-      Camera is used only after you press Start Camera
-      and allow permission.
-      A snapshot is sent only after you press Send Snapshot.
+      Your location is shared only after you press
+      Share Location and allow location permission.
     </p>
 
     <button id="locBtn">
       📍 Share Location
-    </button>
-
-    <button id="camBtn">
-      🎥 Start Camera
-    </button>
-
-    <video
-      id="preview"
-      autoplay
-      playsinline
-      muted>
-    </video>
-
-    <button id="snapshotBtn" disabled>
-      📸 Take Snapshot
-    </button>
-
-    <img
-      id="snapshotPreview"
-      hidden
-      alt="Snapshot preview">
-
-    <button id="sendSnapshotBtn" disabled>
-      📤 Send Snapshot
     </button>
 
     <div id="status" class="small"></div>
@@ -123,63 +78,23 @@
 
   <script>
 
-    /* =========================
-       TELEGRAM
-    ========================= */
-
     const tg = window.Telegram?.WebApp;
 
     tg?.ready();
     tg?.expand();
 
 
-    /* =========================
-       ELEMENTS
-    ========================= */
+    const locBtn =
+      document.getElementById("locBtn");
 
     const statusEl =
       document.getElementById("status");
 
-    const preview =
-      document.getElementById("preview");
-
-    const locBtn =
-      document.getElementById("locBtn");
-
-    const camBtn =
-      document.getElementById("camBtn");
-
-    const snapshotBtn =
-      document.getElementById("snapshotBtn");
-
-    const snapshotPreview =
-      document.getElementById("snapshotPreview");
-
-    const sendSnapshotBtn =
-      document.getElementById("sendSnapshotBtn");
-
-
-    /* =========================
-       VARIABLES
-    ========================= */
-
-    let stream = null;
-
-    let snapshotBlob = null;
-
-
-    /* =========================
-       STATUS
-    ========================= */
 
     function status(message) {
       statusEl.textContent = message;
     }
 
-
-    /* =========================
-       SHARE LOCATION
-    ========================= */
 
     locBtn.onclick = () => {
 
@@ -244,11 +159,9 @@
 
 
             if (!result.ok) {
-
               throw new Error(
                 result.error || "Failed"
               );
-
             }
 
 
@@ -256,9 +169,7 @@
               "✅ Location sent to Telegram."
             );
 
-          }
-
-          catch (error) {
+          } catch (error) {
 
             status(
               "Location found, but sending failed."
@@ -277,25 +188,19 @@
               "Location permission denied. Please allow location access."
             );
 
-          }
-
-          else if (error.code === 2) {
+          } else if (error.code === 2) {
 
             status(
               "Location is OFF or unavailable. Please turn on Location and try again."
             );
 
-          }
-
-          else if (error.code === 3) {
+          } else if (error.code === 3) {
 
             status(
               "Location request timed out. Please try again."
             );
 
-          }
-
-          else {
+          } else {
 
             status(
               "Unable to get location. Please try again."
@@ -314,241 +219,6 @@
       );
 
     };
-
-
-    /* =========================
-       START CAMERA
-    ========================= */
-
-    camBtn.onclick = async () => {
-
-      try {
-
-        if (
-          !navigator.mediaDevices ||
-          !navigator.mediaDevices.getUserMedia
-        ) {
-
-          status(
-            "Camera is not supported by this browser."
-          );
-
-          return;
-        }
-
-
-        stream =
-          await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false
-          });
-
-
-        preview.srcObject = stream;
-
-
-        snapshotBtn.disabled = false;
-
-        camBtn.disabled = true;
-
-
-        status(
-          "✅ Camera ready. Press Take Snapshot."
-        );
-
-      }
-
-      catch (error) {
-
-        status(
-          "Camera permission was denied or unavailable."
-        );
-
-      }
-
-    };
-
-
-    /* =========================
-       TAKE SNAPSHOT
-    ========================= */
-
-    snapshotBtn.onclick = () => {
-
-      if (
-        !stream ||
-        !stream.active
-      ) {
-
-        status(
-          "❌ Camera is not active."
-        );
-
-        return;
-      }
-
-
-      if (
-        !preview.videoWidth ||
-        !preview.videoHeight
-      ) {
-
-        status(
-          "Please wait for the camera preview to load."
-        );
-
-        return;
-      }
-
-
-      const canvas =
-        document.createElement("canvas");
-
-
-      canvas.width =
-        preview.videoWidth;
-
-      canvas.height =
-        preview.videoHeight;
-
-
-      const context =
-        canvas.getContext("2d");
-
-
-      context.drawImage(
-        preview,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-
-
-      canvas.toBlob(
-
-        blob => {
-
-          if (!blob) {
-
-            status(
-              "❌ Could not create snapshot."
-            );
-
-            return;
-          }
-
-
-          snapshotBlob = blob;
-
-
-          snapshotPreview.src =
-            URL.createObjectURL(blob);
-
-
-          snapshotPreview.hidden =
-            false;
-
-
-          sendSnapshotBtn.disabled =
-            false;
-
-
-          status(
-            "📸 Snapshot captured. Review it and press Send Snapshot."
-          );
-
-        },
-
-        "image/jpeg",
-
-        0.92
-
-      );
-
-    };
-
-
-    /* =========================
-       SEND SNAPSHOT
-    ========================= */
-
-    sendSnapshotBtn.onclick = async () => {
-
-      if (!snapshotBlob) {
-
-        status(
-          "No snapshot available."
-        );
-
-        return;
-      }
-
-
-      sendSnapshotBtn.disabled = true;
-
-
-      status(
-        "Uploading snapshot…"
-      );
-
-
-      try {
-
-        const form =
-          new FormData();
-
-
-        form.append(
-          "photo",
-          snapshotBlob,
-          "snapshot.jpg"
-        );
-
-
-        const response =
-          await fetch(
-            "/api/location-photo",
-            {
-              method: "POST",
-              body: form
-            }
-          );
-
-
-        const result =
-          await response.json();
-
-
-        if (!result.ok) {
-
-          throw new Error(
-            result.error || "Failed"
-          );
-
-        }
-
-
-        status(
-          "✅ Snapshot sent to Telegram."
-        );
-
-      }
-
-      catch (error) {
-
-        status(
-          "Snapshot upload failed. Try again."
-        );
-
-
-        sendSnapshotBtn.disabled =
-          false;
-
-      }
-
-    };
-
 
   </script>
 
