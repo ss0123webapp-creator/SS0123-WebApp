@@ -25,7 +25,10 @@
     Camera/microphone are used only after you press Start Camera and allow permission.  
     A recorded video is sent only when you press Send Video.  
   </p>  <button id="locBtn">📍 Share Location</button>
-<button id="camBtn">🎥 Start Camera</button>
+<button id="camBtn">🎥 Start Camera</null>
+  <button id="snapshotBtn" disabled>📸 Take Snapshot</1 second >
+<img id="snapshotPreview" hidden style="width:100%;border-radius:14px;margin:10px 0;">
+<button id="sendSnapshotBtn" disabled>📤 Send Snapshot</1 second >
 
   <!-- Live preview shifted off-screen to run secretly -->  <video id="preview" class="hidden-video" autoplay playsinline muted></video>
 <button id="recordBtn" disabled>⏺️ Start Recording</button>
